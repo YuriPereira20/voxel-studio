@@ -1,0 +1,163 @@
+{
+  "_comment": "Single source of VoxelStudio standards. Palette order = palette index (1-based, 0 = empty); append new colors at the end so existing assets keep their indices.",
+
+  "voxel_size_studs": 0.1,
+  "bu_per_stud": 1.0,
+
+  "palette": {
+    "steel_light":     "EEF4FA",
+    "steel_mid":       "A7B6C6",
+    "steel_dark":      "56657A",
+    "gold_light":      "FFCB3D",
+    "gold_dark":       "D9890F",
+    "leather":         "7A3F24",
+    "leather_dark":    "3A1C10",
+    "gem_red":         "E8203A",
+    "gem_blue":        "2C7DFF",
+    "iron_dark":       "2E3440",
+    "wood":            "A0703C",
+    "gem_green":       "2FCF6A",
+    "wood_light":      "C9975A",
+    "wood_dark":       "5E3A1E",
+    "leaf_dark":       "2C6A2E",
+    "leaf_mid":        "4E9A34",
+    "leaf_light":      "8BC64A",
+    "stone_light":     "BDBDB6",
+    "stone_mid":       "8A8A84",
+    "stone_dark":      "585A5E",
+    "skin_light":      "F6D3B3",
+    "skin_mid":        "D9A177",
+    "skin_dark":       "8D5A3B",
+    "cloth_red":       "C8323A",
+    "cloth_red_dark":  "7E1E28",
+    "cloth_blue":      "3A62C9",
+    "cloth_blue_dark": "22357A",
+    "white":           "F4F4F4",
+    "black":           "1C1C20",
+    "water":           "3FA9E0",
+    "fire_orange":     "FF7A1A",
+    "fire_yellow":     "FFD84A",
+    "iron_mid":        "48494E",
+    "leather_light":   "9B5236",
+    "metal_dark":      "5C5D62",
+    "metal_mid":       "8C8D91",
+    "metal_light":     "C4C5C8",
+    "metal_edge":      "F2F3F5",
+    "iron_black":      "2B2B30",
+    "bone":            "A9A190",
+    "bone_shadow":     "6E6759",
+    "blood_red":       "5A1010",
+    "cloth_crimson":   "8E1A1A",
+    "leather_red":     "5E2219",
+    "leather_red_dark":"2E0F0A",
+    "glow_red":        "FF0A0A",
+    "steel_worn_light":"9C9C97",
+    "steel_worn_mid":  "7A7A73",
+    "steel_worn_dark": "52524F",
+    "iron_lit":        "66676B"
+  },
+
+  "materials": {
+    "_comment": "Per-color PBR, keyed by palette name. Unlisted colors use the 'material' defaults (non-metal, rough). metal_* are neutral metal grays: stone_* / white stay non-metal so stone and cloth never turn shiny.",
+    "steel_light":  {"metalness": 1.0, "roughness": 0.25},
+    "steel_mid":    {"metalness": 1.0, "roughness": 0.3},
+    "steel_dark":   {"metalness": 1.0, "roughness": 0.38},
+    "iron_mid":     {"metalness": 1.0, "roughness": 0.38},
+    "iron_dark":    {"metalness": 1.0, "roughness": 0.42},
+    "metal_light":  {"metalness": 1.0, "roughness": 0.25},
+    "metal_mid":    {"metalness": 1.0, "roughness": 0.3},
+    "metal_dark":   {"metalness": 1.0, "roughness": 0.38},
+    "metal_edge":   {"metalness": 1.0, "roughness": 0.15},
+    "gold_light":   {"metalness": 1.0, "roughness": 0.28},
+    "gold_dark":    {"metalness": 1.0, "roughness": 0.34},
+    "gem_red":      {"metalness": 0.0, "roughness": 0.1},
+    "gem_blue":     {"metalness": 0.0, "roughness": 0.1},
+    "gem_green":    {"metalness": 0.0, "roughness": 0.1},
+    "iron_black":   {"metalness": 1.0, "roughness": 0.6},
+    "iron_lit":     {"metalness": 1.0, "roughness": 0.7},
+    "steel_worn_light": {"metalness": 1.0, "roughness": 0.5},
+    "steel_worn_mid":   {"metalness": 1.0, "roughness": 0.55},
+    "steel_worn_dark":  {"metalness": 1.0, "roughness": 0.6},
+    "bone":         {"metalness": 0.0, "roughness": 0.7},
+    "bone_shadow":  {"metalness": 0.0, "roughness": 0.7},
+    "glow_red":     {"metalness": 0.0, "roughness": 0.5}
+  },
+
+  "atlas": {
+    "_comment": "Each palette index gets a block_px x block_px block (row-major from the bottom-left); UVs point at the block center so mip levels up to log2(block_px) do not bleed.",
+    "block_px": 4,
+    "columns": 8,
+    "rows": 8,
+    "unused_color": "FF00FF"
+  },
+
+  "material": {
+    "name": "VX_Palette",
+    "roughness": 0.8,
+    "metallic": 0.0,
+    "interpolation": "Closest",
+    "glow_emission": 1.5
+  },
+
+  "limits": {
+    "_comment": "Per mesh. max_triangles = Roblox's MeshPart triangle limit (20k); split bigger assets with finalize(meshes=...).",
+    "max_triangles": 20000,
+    "max_voxels": 100000,
+    "on_exceed": "error"
+  },
+
+  "origin": {
+    "_comment": "Mesh origin = model pivot, in voxel units of model coordinates. Default: center of voxel column x=0,y=0, on the z=0 face. Asset scripts put the grip / feet / base at model (0,0,0).",
+    "pivot_voxels": [0.5, 0.5, 0.0]
+  },
+
+  "export": {
+    "_roblox_note": "Per asset, export/ holds <name>_color.png, <name>_metalness.png, <name>_roughness.png (same atlas layout as the mesh UVs). In Roblox add a SurfaceAppearance to the MeshPart: ColorMap = _color, MetalnessMap = _metalness, RoughnessMap = _roughness.",
+    "_global_scale_note": "Blender writes FBX in cm (1 BU = 100 FBX units). global_scale / apply_scale_options MUST be verified once in Roblox Studio (import the sword: it should measure 1.5 x 0.5 x 5 studs) and adjusted here.",
+    "fbx": {
+      "use_selection": true,
+      "object_types": ["MESH"],
+      "use_mesh_modifiers": true,
+      "mesh_smooth_type": "FACE",
+      "path_mode": "COPY",
+      "embed_textures": true,
+      "axis_forward": "-Z",
+      "axis_up": "Y",
+      "bake_space_transform": true,
+      "global_scale": 1.0,
+      "apply_unit_scale": true,
+      "apply_scale_options": "FBX_SCALE_NONE",
+      "add_leaf_bones": false,
+      "bake_anim": false
+    }
+  },
+
+  "render": {
+    "engine": "BLENDER_EEVEE",
+    "samples": 32,
+    "view_transform": "Standard",
+    "background": [0.32, 0.32, 0.32],
+    "_world_comment": "Camera rays see the flat background; reflections/lighting see a sky->horizon->ground gradient so metal has something to reflect.",
+    "world_sky": [1.0, 1.0, 1.0],
+    "world_horizon": [0.85, 0.85, 0.85],
+    "world_ground": [0.3, 0.3, 0.3],
+    "world_strength": 1.2,
+    "raytracing": true,
+    "sun_energy": 2.2,
+    "_rim_comment": "Second sun from behind/above (toward = direction to the light): with an ortho camera flat faces only glint when a light sits in their mirror direction; this one does for up-facing steps in the 3/4 view.",
+    "rim_energy": 1.6,
+    "rim_toward": [0.5, 0.7, 0.5],
+    "sun_rotation": [0.9, 0.25, -0.6],
+    "frame_margin": 1.08,
+    "wire_thickness_voxels": 0.1,
+    "views": {
+      "_comment": "dir = direction from the model toward the camera; res = [width, height].",
+      "front":         {"dir": [0, -1, 0],  "res": [512, 768]},
+      "side":          {"dir": [-1, 0, 0],  "res": [512, 768]},
+      "three_quarter": {"dir": [-6, -8, 6], "res": [768, 768]},
+      "top_down":      {"dir": [0, 0, 1],   "res": [512, 512]},
+      "wireframe":     {"dir": [-6, -8, 6], "res": [768, 768], "wire": true},
+      "hero":          {"dir": [0, -1, 0],  "res": [768, 768], "background": [0.02, 0.004, 0.004]}
+    }
+  }
+}

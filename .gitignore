@@ -1,0 +1,17 @@
+__pycache__/
+*.pyc
+*.blend1
+
+# early prototype output, superseded by voxel_assets/
+/assets/
+/export/
+/renders/
+/refs_test/
+/prototype/
+
+# user-supplied source images: may be third-party
+voxel_assets/*/reference/source.*
+voxel_assets/*/renders/compare_source.*
+
+# textures unpacked by FBX re-import checks
+*.fbm/

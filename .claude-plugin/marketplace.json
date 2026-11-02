@@ -1,0 +1,1 @@
+{"name":"voxel-studio","description":"VoxelStudio local marketplace","owner":{"name":"YuriPereira20"},"plugins":[{"name":"voxel-studio","source":"./plugin","description":"Voxel-art asset pipeline for Roblox (Blender MCP + Codex references)"}]}
