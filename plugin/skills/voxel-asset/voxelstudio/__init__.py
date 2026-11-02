@@ -3,8 +3,8 @@
     Bootstrap at the top of voxel_assets/<name>/build.py (purges a stale copy, then loads this project):
 
     import sys
-    LIB = r"D:\\GamesProjects\\VoxelStudio\\plugin\\skills\\voxel-asset"
-    PROJECT = r"D:\\GamesProjects\\VoxelStudio"
+    LIB = r"<LIB>"            # the voxel-asset skill folder (holds voxelstudio/)
+    PROJECT = r"<PROJECT>"    # the project folder (holds voxel_assets/ and voxel_config.json)
     for _m in [m for m in sys.modules if m == "voxelstudio" or m.startswith("voxelstudio.")]:
         del sys.modules[_m]
     if LIB not in sys.path:

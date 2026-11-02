@@ -54,7 +54,15 @@
     "steel_worn_light":"9C9C97",
     "steel_worn_mid":  "7A7A73",
     "steel_worn_dark": "52524F",
-    "iron_lit":        "66676B"
+    "iron_lit":        "66676B",
+    "frog_lime":       "8DB52C",
+    "frog_shadow":     "62861C",
+    "frog_dark":       "2E4210",
+    "cream":           "EBD9A2",
+    "purple_mid":      "461A4E",
+    "purple_dark":     "2C1033",
+    "blush_pink":      "EE8A80",
+    "scarlet":         "D61A30"
   },
 
   "materials": {

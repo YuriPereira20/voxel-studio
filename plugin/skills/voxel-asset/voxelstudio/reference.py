@@ -48,16 +48,50 @@ def _nearest(rgb, exclude=()):
     return d.argmin(1) + 1, d.min(1)
 
 
+BG_STEP = 0.04   # flood fill: max RGB channel step between neighbouring background pixels (gradients, noise)
+BG_CAP = 0.8     # flood fill: never grows further than this from the corner colour (bright floor glow is ~0.7)
+
+
+def _seg_fill(mask, ok):
+    """Spread `mask` along rows through runs of allowed steps (ok[:, i] = pixel i -> i+1 allowed)."""
+    h, w = mask.shape
+    start = np.concatenate([np.ones((h, 1), bool), ~ok], 1)       # a blocked step starts a new run
+    run = np.cumsum(start.ravel()) - 1
+    return (np.bincount(run, weights=mask.ravel()) > 0)[run].reshape(h, w)
+
+
+def _flood_background(rgb, bg):
+    """Pixels connected to the image border through small colour steps (<= BG_STEP), within BG_CAP of `bg`."""
+    capok = np.abs(rgb - bg).max(2) <= BG_CAP
+    ok_h = (np.abs(np.diff(rgb, axis=1)).max(2) <= BG_STEP) & capok[:, 1:] & capok[:, :-1]
+    ok_v = (np.abs(np.diff(rgb, axis=0)).max(2) <= BG_STEP) & capok[1:] & capok[:-1]
+    mask = np.zeros(capok.shape, bool)
+    mask[[0, -1], :] = capok[[0, -1], :]
+    mask[:, [0, -1]] = capok[:, [0, -1]]
+    n = -1
+    while mask.sum() != n:                    # alternate row / column runs until nothing new is reached
+        n = mask.sum()
+        mask = _seg_fill(_seg_fill(mask, ok_h).T, ok_v.T).T
+    return mask
+
+
 def _key(px, bg_tolerance):
     """Classify pixels: 0 = background, 1 = content, 2 = edge (anti-aliased blend with the background).
 
-    Background = within bg_tolerance (max RGB channel diff) of the median corner color.
+    Flat border (5-95% spread <= bg_tolerance, e.g. Codex magenta): background = within bg_tolerance (max RGB
+    channel diff) of the median corner color, so enclosed holes stay background.
+    Otherwise (gradient, vignette, floor glow): background = flood fill from the whole border through small
+    colour steps (<= BG_STEP) within BG_CAP of the corner color; enclosed holes stay content.
     Edge = not background, but closer (Lab) to the background than to any palette color, e.g. magenta fringes.
     """
-    h, w = px.shape[:2]
     bg = np.median(px[[0, 0, -1, -1], [0, -1, 0, -1], :3], 0)
     rgb = px[..., :3]
-    cls = np.where((np.abs(rgb - bg).max(2) > bg_tolerance) & (px[..., 3] > 0.5), 1, 0)
+    border = np.concatenate([rgb[[0, -1]].reshape(-1, 3), rgb[:, [0, -1]].reshape(-1, 3)])
+    if np.ptp(np.percentile(border, [5, 95], 0), 0).max() <= bg_tolerance:
+        back = np.abs(rgb - bg).max(2) <= bg_tolerance
+    else:
+        back = _flood_background(rgb, bg)
+    cls = np.where(back | (px[..., 3] <= 0.5), 0, 1)
     cand = np.argwhere(cls == 1)
     q = np.rint(rgb[cls == 1] * 255).astype(np.int32)
     packed = (q[:, 0] << 16) | (q[:, 1] << 8) | q[:, 2]
@@ -127,10 +161,20 @@ def palette_report(path, bg_tolerance=0.1, top=12):
     }
 
 
-def cube_pitch(path, bg_tolerance=0.1):
+def _first_peak(a, lo, hi):
+    """First local maximum of a[lo..hi] reaching half the highest one (multiples of the pitch peak too)."""
+    k = np.arange(lo, hi + 1)
+    peak = k[(a[k] >= a[k - 1]) & (a[k] >= a[k + 1])]
+    if not len(peak):
+        return lo + int(np.argmax(a[lo:hi + 1]))
+    return int(peak[a[peak] >= 0.5 * a[peak].max()][0])
+
+
+def cube_pitch(path, bg_tolerance=0.1, max_pitch=None):
     """Pixels per voxel-art cube, from the autocorrelation of luminance edges along the content's longer
     axis (cubes are square in an orthographic view; the short axis has too few periods to be reliable).
-    Refined on a far peak for sub-pixel accuracy. Layer size = content size / pitch."""
+    Refined on a far peak for sub-pixel accuracy. Layer size = content size / pitch.
+    max_pitch: largest pitch searched (default: the content's shorter side / 8, i.e. >= 8 cubes across)."""
     px = load_reference(path)
     r0, r1, c0, c1 = content_bbox(px, bg_tolerance)
     lum = px[r0:r1, c0:c1, :3] @ np.array([0.299, 0.587, 0.114])
@@ -138,7 +182,8 @@ def cube_pitch(path, bg_tolerance=0.1):
     sig = np.abs(np.diff(lum, axis=axis)).mean(1 - axis)
     s = sig - sig.mean()
     a = np.correlate(s, s, "full")[len(s) - 1:]
-    p = 4 + int(np.argmax(a[4:20]))                         # first peak = rough pitch
+    hi = min(int(max_pitch or min(lum.shape) // 8), len(a) - 2)
+    p = _first_peak(a, 4, max(hi, 5))                       # first peak = rough pitch
     n = max(1, int(len(s) * 0.4 / p))                       # refine on the n-th peak
     lo = int(n * p - p / 2)
     k = lo + int(np.argmax(a[lo:lo + p]))
@@ -193,12 +238,17 @@ def layer_report(layer):
     return {config.name(i): int(n) for i, n in enumerate(counts) if i and n}
 
 
-def compare_images(ref_path, render_path, out_path, bg_tolerance=0.1, height=768):
-    """Side-by-side PNG: both images cropped to their content bbox and scaled to the same height."""
+def compare_images(ref_path, render_path, out_path, bg_tolerance=0.1, height=768, ref_bbox=None,
+                   ref_tolerance=None, render_tolerance=None):
+    """Side-by-side PNG: both images cropped to their content bbox and scaled to the same height.
+
+    ref_bbox: manual (r0, r1, c0, c1) crop of the reference in pixels (rows from the top, like content_bbox)
+    when keying can't find it. ref_tolerance / render_tolerance override bg_tolerance per image.
+    """
     tiles = []
-    for p in (ref_path, render_path):
+    for p, tol, bbox in ((ref_path, ref_tolerance, ref_bbox), (render_path, render_tolerance, None)):
         px = load_reference(p)
-        r0, r1, c0, c1 = content_bbox(px, bg_tolerance)
+        r0, r1, c0, c1 = bbox or content_bbox(px, bg_tolerance if tol is None else tol)
         crop = px[r0:r1, c0:c1]
         s = height / crop.shape[0]
         ys = np.minimum((np.arange(height) / s).astype(int), crop.shape[0] - 1)
@@ -215,3 +265,22 @@ def compare_images(ref_path, render_path, out_path, bg_tolerance=0.1, height=768
     finally:
         bpy.data.images.remove(img)
     return out_path
+
+
+def _selftest():
+    """Keying on a gradient (content found, nothing else) and on a flat background (enclosed hole stays bg)."""
+    px = np.ones((24, 24, 4), np.float32)
+    px[..., :3] = np.linspace(0.02, 0.3, 24)[None, :, None] * np.array([1.0, 0.1, 0.2])   # dark red gradient
+    px[6:18, 8:16, :3] = (0.55, 0.7, 0.18)                                                 # green block
+    assert tuple(int(v) for v in content_bbox(px)) == (6, 18, 8, 16)
+    flat = px.copy()
+    flat[..., :3] = (1.0, 0.0, 1.0)
+    flat[6:18, 8:16, :3] = (0.55, 0.7, 0.18)
+    flat[10:12, 11:13, :3] = (1.0, 0.0, 1.0)                                               # enclosed hole
+    cls, _ = _key(flat, 0.1)
+    assert cls[10, 11] == 0 and cls[6, 8] == 1
+    a = np.cos(np.arange(60) * 2 * np.pi / 9) + 1.5                                         # period-9 signal
+    assert _first_peak(a, 4, 40) == 9
+
+
+_selftest()

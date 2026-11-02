@@ -11,6 +11,7 @@ import bpy
 from mathutils import Vector
 
 from . import config, mesher
+from .grid import resolve_overlaps
 
 SCENE_NAME = "VoxelLab"
 PREFIX = "VX_"
@@ -160,7 +161,7 @@ def _world(r):
     nt.links.new(ramp.outputs["Color"], sky.inputs["Color"])
     sky.inputs["Strength"].default_value = r["world_strength"]
     flat.name = "CameraBackground"
-    flat.inputs["Color"].default_value = (*r["background"], 1)
+    flat.inputs["Color"].default_value = (*_linear(r["background"]), 1)
     nt.links.new(path.outputs["Is Camera Ray"], mix.inputs["Fac"])
     nt.links.new(sky.outputs[0], mix.inputs[1])
     nt.links.new(flat.outputs[0], mix.inputs[2])
@@ -213,15 +214,41 @@ def _frame(cam, objs, direction, res, margin, region=None):
     cam.rotation_euler = rot.to_euler()
 
 
+# Named views a caller can request in extra_views; never rendered by default (existing assets keep their render
+# set). Model axes: -Y = front, +X = the model's LEFT, so config "side" (dir -X) shows the model's RIGHT side.
+VIEW_PRESETS = {
+    "left": {"dir": [1, 0, 0], "res": [512, 768]},
+    "back": {"dir": [0, 1, 0], "res": [512, 768]},
+    "right": {"dir": [-1, 0, 0], "res": [512, 768]},
+    "hero_34": {"dir": [6, -8, 2.5], "res": [768, 768]},   # low 3/4 from the front-left: faces under hats show
+}
+
+
+def _linear(c):
+    """View background: 'RRGGBB' sRGB hex -> linear RGB; a list is taken as linear already."""
+    if isinstance(c, str):
+        return [x / 12.92 if x <= 0.04045 else ((x + 0.055) / 1.055) ** 2.4 for x in config.hex_rgb(c)]
+    return list(c)
+
+
+assert _linear("FFFFFF") == [1.0, 1.0, 1.0] and abs(_linear("808080")[0] - 0.2158605) < 1e-6
+
+
 def render_views(scn, objs, folder, views=None, extra_views=None):
-    """Render the configured views (or the given subset) plus asset-specific `extra_views` (same keys as the
-    config views, optionally "region": [[x,y,z], [x,y,z]] in BU for close-ups) to <folder>/<view>.png."""
+    """Render the configured views (or the given subset) plus asset-specific `extra_views` to <folder>/<view>.png.
+
+    extra_views: a list of VIEW_PRESETS names, or {name: view}; a view has the config view keys ("dir", "res",
+    "wire", "background" as linear RGB or an sRGB hex string) plus optional "region": [[x,y,z], [x,y,z]] in BU
+    for close-ups. A dict entry named after a preset is merged over it (e.g. {"left": {"background": "1F020B"}}).
+    """
     os.makedirs(folder, exist_ok=True)
     r = config.CFG["render"]
     cam = _setup_render(scn)
     scn.view_layers[0].update()
     paths = []
-    for vname, v in {**r["views"], **(extra_views or {})}.items():
+    ev = dict.fromkeys(extra_views, {}) if isinstance(extra_views, (list, tuple)) else dict(extra_views or {})
+    ev = {n: {**VIEW_PRESETS.get(n, {}), **v} for n, v in ev.items()}
+    for vname, v in {**r["views"], **ev}.items():
         if vname.startswith("_") or (views and vname not in views):
             continue
         _frame(cam, objs, v["dir"], v["res"], r["frame_margin"], v.get("region"))
@@ -230,7 +257,7 @@ def render_views(scn, objs, folder, views=None, extra_views=None):
         scn.render.filepath = os.path.join(folder, vname + ".png")
         tmp = _add_wire(scn, objs, r["wire_thickness_voxels"] * config.bu_per_voxel()) if v.get("wire") else []
         flat = scn.world.node_tree.nodes["CameraBackground"].inputs["Color"]  # what the camera sees
-        flat.default_value = (*v.get("background", r["background"]), 1)
+        flat.default_value = (*_linear(v.get("background", r["background"])), 1)
         try:
             bpy.ops.render.render(write_still=True, scene=scn.name)
         finally:
@@ -282,6 +309,8 @@ def finalize(model, name, per_part=False, meshes=None, emissive=(), asset_dir=No
     One mesh by default; one per part if per_part; or meshes={"mesh": [part names]} to group parts.
     `emissive`: mesh names (or part names with per_part) that glow: emissive material in Blender,
     Material=Neon in Roblox. Glow pieces may be disconnected, so they skip the floating-voxel warning.
+    With meshes=, glow voxels are removed from the other meshes and any other voxel shared by two meshes
+    raises ValueError. extra_views: see render_views (preset names or view dicts).
     """
     asset_dir = asset_dir or os.path.join(config.ASSETS_DIR, name)
     export_dir, render_dir = os.path.join(asset_dir, "export"), os.path.join(asset_dir, "renders")
@@ -289,7 +318,9 @@ def finalize(model, name, per_part=False, meshes=None, emissive=(), asset_dir=No
     scn = lab_scene()
 
     if meshes:
-        pieces = [(m, model.merged(parts), (0, 0, 0)) for m, parts in meshes.items()]
+        grids = {m: model.merged(parts) for m, parts in meshes.items()}
+        resolve_overlaps(grids, emissive)            # glow wins; any other shared voxel is an error
+        pieces = [(m, g, (0, 0, 0)) for m, g in grids.items()]
     elif per_part:
         pieces = [(p, g, off) for p, (g, off) in model.parts.items()]
     else:

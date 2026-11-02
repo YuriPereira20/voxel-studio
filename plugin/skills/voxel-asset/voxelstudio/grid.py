@@ -102,15 +102,20 @@ class VoxelGrid:
     def line(self, p0, p1, color, radius=0.0):
         self.fill_mask(self.line_mask(p0, p1, radius), color)
 
-    def mirror(self, axis="x", keep="+"):
-        """Copy the positive (keep='+') or negative half onto the other side of model coord 0."""
+    def mirror(self, axis="x", keep="+", even=False):
+        """Copy the positive (keep='+') or negative half onto the other side.
+
+        even=False: odd-width symmetry about the voxel at model coord 0 (m -> -m; column 0 is the axis).
+        even=True: even-width symmetry about the plane between coords -1 and 0 (m -> -1 - m; '+' = coords >= 0).
+        Center the model on that plane with a pivot of 0.0 on this axis (VoxelModel(pivot=[0.0, ...])).
+        """
         a = AXES[axis]
         d = np.moveaxis(self.data, a, 0)  # view
         o, n = self.origin[a], d.shape[0]
         for i in range(n):
             m = i - o
-            if (m > 0) if keep == "+" else (m < 0):
-                j = o - m
+            if (m >= 0 if even else m > 0) if keep == "+" else (m < 0):
+                j = o - m - (1 if even else 0)
                 if 0 <= j < n:
                     d[j] = d[i]
                 elif d[i].any():
@@ -253,3 +258,55 @@ class VoxelModel:
         for g, off in parts:
             out.paste(g, off)
         return out
+
+
+def resolve_overlaps(grids, emissive=()):
+    """grids: {mesh name: VoxelGrid} in model coords (edited in place). Emissive meshes win: their voxels are
+    removed from the other meshes (glow over body). Any other voxel claimed by two meshes raises ValueError,
+    since it would leave hidden duplicate faces / z-fighting between MeshParts."""
+    lo = np.min([-g.origin for g in grids.values()], 0)
+    hi = np.max([np.array(g.data.shape) - 1 - g.origin for g in grids.values()], 0)
+    glow = np.zeros(tuple(hi - lo + 1), bool)
+    owner = np.full(glow.shape, -1, np.int32)
+    for k in emissive:
+        if k in grids:
+            glow[tuple((np.argwhere(grids[k].data > 0) - grids[k].origin - lo).T)] = True
+    names, clashes = list(grids), {}
+    for i, (k, g) in enumerate(grids.items()):
+        idx = np.argwhere(g.data > 0)
+        p = tuple((idx - g.origin - lo).T)
+        if k not in emissive:
+            hit = glow[p]
+            g.data[tuple(idx[hit].T)] = 0
+            p = tuple(a[~hit] for a in p)
+        prev = owner[p]
+        for j in np.unique(prev[prev >= 0]):
+            clashes[f"{names[j]}/{k}"] = int((prev == j).sum())
+        owner[p] = i
+    if clashes:
+        raise ValueError(f"meshes claim the same voxels (voxel counts): {clashes}; remove them from one part")
+
+
+def _selftest():
+    g = VoxelGrid((6, 1, 1), (3, 0, 0))
+    g.set((0, 0, 0), 1)
+    g.set((2, 0, 0), 2)
+    g.mirror("x", even=True)                       # 0 -> -1, 2 -> -3
+    assert g.get((-1, 0, 0)) == 1 and g.get((-3, 0, 0)) == 2 and g.get((-2, 0, 0)) == 0
+    g2 = VoxelGrid((5, 1, 1), (2, 0, 0))
+    g2.set((1, 0, 0), 1)
+    g2.mirror("x")                                 # default unchanged: 1 -> -1
+    assert g2.get((-1, 0, 0)) == 1 and g2.get((0, 0, 0)) == 0
+    body, glow = VoxelGrid((3, 1, 1)), VoxelGrid((3, 1, 1))
+    body.data[:] = 1
+    glow.data[1] = 2
+    resolve_overlaps({"body": body, "glow": glow}, emissive=("glow",))
+    assert body.data.ravel().tolist() == [1, 0, 1]
+    try:
+        resolve_overlaps({"a": VoxelGrid((1, 1, 1)), "b": body, "c": body.copy()})
+        raise AssertionError("overlap not detected")
+    except ValueError:
+        pass
+
+
+_selftest()

@@ -10,8 +10,10 @@ __pycache__/
 /prototype/
 
 # user-supplied source images: may be third-party
-voxel_assets/*/reference/source.*
+voxel_assets/*/reference/source*
 voxel_assets/*/renders/compare_source.*
 
 # textures unpacked by FBX re-import checks
 *.fbm/
+# frog_wizard compares embed the user-supplied views
+voxel_assets/frog_wizard/renders/compare_*
